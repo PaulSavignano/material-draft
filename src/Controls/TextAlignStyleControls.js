@@ -10,9 +10,9 @@ const styles = {
 }
 
 const TYPES = [
-  { label: "left", style: "left" },
-  { label: "center", style: "center" },
-  { label: "right", style: "right" }
+  { label: "left", style: "textAlignLeft" },
+  { label: "center", style: "textAlignCenter" },
+  { label: "right", style: "textAlignRight" }
 ]
 
 const TextAlignStyleControls = props => {

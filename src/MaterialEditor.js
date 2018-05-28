@@ -1,5 +1,6 @@
 import React, { Component } from "react"
 import {
+  AtomicBlockUtils,
   Editor,
   EditorState,
   convertToRaw,
@@ -8,6 +9,9 @@ import {
   Modifier,
   DefaultDraftBlockRenderMap
 } from "draft-js"
+
+import ComponentSwitch from './Components/ComponentSwitch'
+
 import withStyles from "@material-ui/core/styles/withStyles"
 import Typography from "@material-ui/core/Typography"
 import Immutable from "immutable"
@@ -21,10 +25,11 @@ import AlignStyleControls from './Controls/AlignStyleControls'
 
 import blockStyleMap from "./maps/blockStyleMap"
 import colorStyleMap from "./maps/colorStyleMap"
-import textAlignStyleMap from "./maps/textAlignStyleMap"
+import textAlignStyleMap from './maps/textAlignStyleMap'
 
 import blockStyleFn from "./functions/blockStyleFn"
 import getCurrentBlock from "./getCurrentBlock"
+import blockRendererFn from './functions/blockRendererFn'
 
 const RenderTypography = props => {
   console.log("render", props)
@@ -60,7 +65,9 @@ const myMap = TYPES.reduce((a, v) => {
   }
   return a
 }, {})
-const bRenderMap = Immutable.Map(myMap)
+const bRenderMap = Immutable.Map({
+  ...myMap
+})
 
 const blockRenderMap = DefaultDraftBlockRenderMap.merge(bRenderMap)
 
@@ -102,30 +109,26 @@ class MaterialEditor extends React.Component {
   }
   toggleColorStyle = toggledColor => {
     const { editorState } = this.state
-    const selection = editorState.getSelection()
+    const selectionState = editorState.getSelection()
+    console.log('editorState', selectionState.isCollapsed())
     const nextContentState = Object.keys(colorStyleMap).reduce(
       (contentState, color) => {
-        return Modifier.removeInlineStyle(contentState, selection, color)
+        return Modifier.removeInlineStyle(contentState, selectionState, color)
       },
       editorState.getCurrentContent()
     )
-
     let nextEditorState = EditorState.push(
       editorState,
       nextContentState,
       "change-inline-style"
     )
-
     const currentStyle = editorState.getCurrentInlineStyle()
-
-    // Unset style override for current color.
-    if (selection.isCollapsed()) {
+    if (selectionState.isCollapsed()) {
       nextEditorState = currentStyle.reduce((state, color) => {
         return RichUtils.toggleInlineStyle(state, color)
       }, nextEditorState)
     }
     console.log("toggledColor", toggledColor)
-    // If the color is being toggled on, apply it.
     if (!currentStyle.has(toggledColor)) {
       nextEditorState = RichUtils.toggleInlineStyle(
         nextEditorState,
@@ -208,12 +211,40 @@ class MaterialEditor extends React.Component {
     )
     this.setState({ editorState: newEditorState })
   }
+  handleImage = (e) => {
+    e.preventDefault();
+    const { editorState, urlValue } = this.state;
+    const contentState = editorState.getCurrentContent()
+    const contentStateWithEntity = contentState.createEntity(
+      'image',
+      'IMMUTABLE',
+      { src: urlValue }
+    );
+    const entityKey = contentStateWithEntity.getLastCreatedEntityKey();
+    const newEditorState = EditorState.set(
+      editorState,
+      { currentContent: contentStateWithEntity }
+    );
+
+    this.setState({
+      editorState: AtomicBlockUtils.insertAtomicBlock(
+        newEditorState,
+        entityKey,
+        ' '
+      ),
+      showURLInput: false,
+      urlValue: '',
+    }, () => {
+      setTimeout(() => this.focus(), 0);
+    });
+  }
   handleConvert = () => {
     const { editorState } = this.state
     const raw = convertToRaw(editorState.getCurrentContent())
     console.log("raw", raw)
     this.setState({ raw })
   }
+  handleInputChange = (e) => this.setState({ urlValue: e.target.value })
   render() {
     const { editorState } = this.state
     // If the user changes block type before entering any text, we can
@@ -230,6 +261,7 @@ class MaterialEditor extends React.Component {
         className += " RichEditor-hidePlaceholder"
       }
     }
+    console.log(this.state)
     return (
       <div>
         <div className="RichEditor-root">
@@ -257,11 +289,23 @@ class MaterialEditor extends React.Component {
             editorState={editorState}
             onToggle={this.toggleAlign}
           />
+          <div>
+            <input
+              onChange={this.handleInputChange}
+              ref="url"
+              type="text"
+              value={this.state.urlValue}
+            />
+            <button onClick={this.handleImage}>
+              Confirm
+            </button>
+          </div>
           <div className={className} onClick={this.focus}>
             <Editor
               blockRenderMap={blockRenderMap}
               blockStyleMap={blockStyleMap}
               blockStyleFn={blockStyleFn}
+              blockRendererFn={blockRendererFn}
               customStyleMap={{ ...colorStyleMap, ...textAlignStyleMap }}
               editorState={editorState}
               handleKeyCommand={this.handleKeyCommand}
@@ -274,26 +318,10 @@ class MaterialEditor extends React.Component {
           </div>
         </div>
         <button onClick={this.handleConvert}>Convert</button>
-        {this.state.raw.blocks.map(c => {
-          console.log('c', c)
-          const variant = c.type === "unstyled" ? "body1" : c.type
-          const styles = c.inlineStyleRanges.reduce((a, v) => {
-            switch (true) {
-              case v.style.includes('color'):
-                  a['color'] = colorStyleMap[v.style].color
-                  break
-              default: 
-                a['textAlign'] = v.style
-            }
-            return a
-          }, {})
-          console.log('styles', styles)
-          return (
-            <Typography key={c.key} variant={variant}>
-              {c.text}
-            </Typography>
-          )
-        })}
+        <div style={{ display: 'flex' }}>
+          {this.state.raw.blocks.map(component => <ComponentSwitch component={component} entityMap={this.state.raw.entityMap} />)}
+        </div>
+
       </div>
     )
   }
